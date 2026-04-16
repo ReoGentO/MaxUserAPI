@@ -1,7 +1,6 @@
 from datetime import datetime
 import json
 
-
 class Message:
     def __init__(self, bot, data: dict):
         self.bot = bot
@@ -21,6 +20,7 @@ class Message:
         self.type = msg_data.get("type")
         self.attachments = msg_data.get("attaches", [])
         self.elements = msg_data.get("elements", [])
+        self.link = msg_data.get("link", None)
 
     def __repr__(self):
         data = {

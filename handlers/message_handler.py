@@ -1,9 +1,9 @@
 import asyncio
 from typing import Callable, Any
 
-from .Handler import Handler
-from ..Message import Message
-from ..enums.Opcodes import Opcodes
+from .handler import Handler
+from ..types import Message
+from ..enums import Opcodes
 
 
 class MessageHandler(Handler):

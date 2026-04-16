@@ -1,3 +1,2 @@
-from .Client import Client
-from .Message import Message
-from .enums.Opcodes import Opcodes
+from .client import Client
+from .types import Message

@@ -8,10 +8,9 @@ from typing import Callable
 import qrcode
 import websockets
 
-from .Message import Message
-from .enums.Opcodes import Opcodes
-from .handlers.Handler import Handler
-from .handlers.MessageHandler import MessageHandler
+from .types import Message
+from .enums import Opcodes
+from .handlers import Handler, MessageHandler
 
 class Client:
     __request_header: dict = {
