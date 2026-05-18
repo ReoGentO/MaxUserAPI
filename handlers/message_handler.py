@@ -13,7 +13,13 @@ class MessageHandler(Handler):
         self.text_filter = text_filter
 
     def check(self, data: dict) -> bool:
-        if data["opcode"] != Opcodes.MESSAGE_RECEIVE:
+        if data.get("opcode") != Opcodes.MESSAGE_RECEIVE:
+            return False
+
+        payload = data.get("payload", {})
+        message_data = payload.get("message", {})
+
+        if message_data.get("status") == "EDITED":
             return False
 
         actual_chat_id = data["payload"]["chatId"]

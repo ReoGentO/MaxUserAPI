@@ -10,7 +10,9 @@ import websockets
 
 from .types import Message
 from .enums import Opcodes
+from .requesting import RequestManager
 from .handlers import Handler, MessageHandler
+
 
 class Client:
     __request_header: dict = {
@@ -42,20 +44,30 @@ class Client:
         self.ws = None
         self.loop = asyncio.get_event_loop()
 
+        self._keepalive_task: asyncio.Task = None
+
         self.handlers: list[Handler] = []
         self._pending_responses: dict[int, asyncio.Future] = {}
+
+        self.requests = RequestManager()
+
+        self.pyrogram_client = None
 
         if os.path.exists(client_name + ".sessionToken"):
             self._parse_session()
         else:
-            self.tokenId = asyncio.run(self.__request_token_with_qrcode())
+            loop = asyncio.new_event_loop()
+            self.tokenId = loop.run_until_complete(self.__request_token_with_qrcode())
+            loop.close()
 
     def add_handler(self, handler: Handler):
         self.handlers.append(handler)
 
-    async def send_message(self, chat_id: int, text: str, notify: bool = True) -> Message:
+    async def send_message(self, chat_id: int, text: str, notify: bool = True,
+                           reply_to_message_id: int = None) -> Message:
         """Отправляет сообщение в указанный чат (только при открытом WS-соединении)
 
+        :param reply_to_message_id:
         :param chat_id: Айди чата, в который нужно отправить сообщение.
         :param text: Текст сообщения.
         :param notify: Отправлять ли уведомление участникам чата (по умолчанию True).
@@ -71,6 +83,12 @@ class Client:
             },
             "notify": notify
         }
+        if reply_to_message_id is not None:
+            payload["message"]["link"] = {
+                "type": "REPLY",
+                "messageId": reply_to_message_id
+            }
+
         data: dict = await self._send_raw(payload, opcode=Opcodes.SEND_MESSAGE)
 
         return Message(self, data)
@@ -79,6 +97,7 @@ class Client:
         def decorator(func: Callable):
             self.add_handler(MessageHandler(func, chat_id=chat_id, text_filter=text_filter))
             return func
+
         return decorator
 
     async def _send_raw(self, payload: dict, opcode: Opcodes):
@@ -136,7 +155,7 @@ class Client:
             data = json.loads(raw)
         except json.JSONDecodeError:
             return
-
+        print(data)
         server_seq = data.get("seq")
         if server_seq is not None:
             self._update_seq(server_seq)
@@ -153,6 +172,9 @@ class Client:
                 asyncio.create_task(handler.handle(self, data))
 
     async def __listen(self):
+        if self._keepalive_task and not self._keepalive_task.done():
+            self._keepalive_task.cancel()
+
         async with websockets.connect(self.__uri, additional_headers=self.__request_header) as ws:
             self.ws = ws
 
@@ -174,20 +196,29 @@ class Client:
             await ws.send(json.dumps(auth_payload))
             print(f"[+] Авторизован")
 
-            asyncio.create_task(self.__keepalive(ws))
+            self._keepalive_task = asyncio.create_task(self.__keepalive())
 
             print("[*] Слушаем сообщения...")
             async for raw in ws:
                 await self.__dispatch(raw)
 
-    async def __keepalive(self, ws):
-        while True:
-            await asyncio.sleep(30)
-            ping = {"ver": 11, "cmd": 0, "seq": self.__next_seq(), "opcode": 1, "payload": {"interactive": True}}
-            await ws.send(json.dumps(ping))
+    async def __keepalive(self):
+        try:
+            while self.ws:
+                await asyncio.sleep(30)
+                ping = {
+                    "ver": 11, "cmd": 0, "seq": self.__next_seq(),
+                    "opcode": 1, "payload": {"interactive": True}
+                }
+                await self.ws.send(json.dumps(ping))
+        except (websockets.ConnectionClosed, asyncio.CancelledError):
+            pass
+        except Exception as e:
+            print(f"[!] Ошибка в keepalive: {e}")
 
     def run(self):
         """Запускает прослушивание WebSocket (с автопереподключением)"""
+
         async def _run_loop():
             while True:
                 try:
@@ -201,7 +232,7 @@ class Client:
 
         asyncio.run(_run_loop())
 
-    async def start_listening(self):
+    async def start(self):
         """Метод для запуска внутри уже существующего цикла событий"""
         while True:
             try:
@@ -209,6 +240,17 @@ class Client:
             except Exception as e:
                 print(f"[!] Ошибка в боте: {e}, переподключение...")
                 await asyncio.sleep(5)
+
+    async def stop(self):
+        print("[*] Закрытие соединений MaxAPI...")
+
+        # 1. Закрываем WebSocket
+        if self.ws:
+            try:
+                await self.ws.close()
+                print("[+] WebSocket закрыт")
+            except Exception as e:
+                print(f"[-] Ошибка при закрытии WS: {e}")
 
     async def __request_token_with_qrcode(self):
         async with websockets.connect(self.__uri, additional_headers=self.__request_header) as ws:
