@@ -155,7 +155,7 @@ class Client:
             data = json.loads(raw)
         except json.JSONDecodeError:
             return
-        print(data)
+        
         server_seq = data.get("seq")
         if server_seq is not None:
             self._update_seq(server_seq)
