@@ -3,7 +3,7 @@ import json
 import os
 import uuid
 import time
-from typing import Callable
+from typing import Callable, List
 
 import qrcode
 import websockets
@@ -11,7 +11,7 @@ import websockets
 from .types import Message
 from .enums import Opcodes
 from .requesting import RequestManager
-from .handlers import Handler, MessageHandler
+from .handlers import Handler, MessageHandler, EditMessageHandler
 
 
 class Client:
@@ -42,7 +42,6 @@ class Client:
         self.__handshake["payload"]["deviceId"] = str(uuid.uuid4())
         self.favourite = 0
         self.ws = None
-        self.loop = asyncio.get_event_loop()
 
         self._keepalive_task: asyncio.Task = None
 
@@ -93,9 +92,36 @@ class Client:
 
         return Message(self, data)
 
+    async def edit_message(self, chat_id: int, message_id: int, new_text: str, attachments: List[dict[dict]], elements) -> Message:
+        """Редактирует сообщение в указанном чате (только при открытом WS-соединении)
+
+        :param chat_id: Айди чата, в котором находится сообщение.
+        :param message_id: Айди сообщения, которое нужно отредактировать.
+        :param new_text: Новый текст сообщения.
+        :param attachments: Новый список вложений (по формату из payload'а сообщений).
+        :param elements: Новый список элементов (по формату из payload'а сообщений).
+        """
+        payload = {
+            "chatId": chat_id,
+            "elements": elements,
+            "attachments": attachments,
+            "text": new_text,
+            "messageId": message_id
+        }
+
+        data: dict = await self._send_raw(payload, opcode=Opcodes.EDIT_MESSAGE)
+        return Message(self, data)
+
     def on_message(self, chat_id: int = None, text_filter: str = None):
         def decorator(func: Callable):
             self.add_handler(MessageHandler(func, chat_id=chat_id, text_filter=text_filter))
+            return func
+
+        return decorator
+
+    def on_edited_message(self, chat_id: int = None, text_filter: str = None):
+        def decorator(func: Callable):
+            self.add_handler(EditMessageHandler(func, chat_id=chat_id, text_filter=text_filter))
             return func
 
         return decorator
@@ -223,6 +249,8 @@ class Client:
             while True:
                 try:
                     await self.__listen()
+                except (asyncio.CancelledError, KeyboardInterrupt):
+                    break
                 except websockets.ConnectionClosed as e:
                     print(f"[!] Соединение закрыто ({e}), переподключение через 3с...")
                     await asyncio.sleep(3)
@@ -230,7 +258,10 @@ class Client:
                     print(f"[!] Ошибка: {e}, повтор через 5с...")
                     await asyncio.sleep(5)
 
-        asyncio.run(_run_loop())
+        try:
+            asyncio.run(_run_loop())
+        except KeyboardInterrupt:
+            pass
 
     async def start(self):
         """Метод для запуска внутри уже существующего цикла событий"""
@@ -243,6 +274,14 @@ class Client:
 
     async def stop(self):
         print("[*] Закрытие соединений MaxAPI...")
+
+        if self._keepalive_task and not self._keepalive_task.done():
+            self._keepalive_task.cancel()
+            try:
+                await self._keepalive_task
+            except asyncio.CancelledError:
+                pass
+            print("[+] Keepalive остановлен")
 
         # 1. Закрываем WebSocket
         if self.ws:

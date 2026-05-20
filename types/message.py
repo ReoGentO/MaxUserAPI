@@ -37,15 +37,8 @@ class Message:
         self.chat_id = payload.get("chatId")
         self.notify = payload.get("notify")
 
-        self.client_id = self.msg_data.get("cid")
-        self.text = self.msg_data.get("text", "")
         self.sender_id = self.msg_data.get("sender")
-        self.message_id = self.msg_data.get("id")
-        self.time = self.msg_data.get("time", None)
-        self.type = self.msg_data.get("type")
-        self.attachments = self.msg_data.get("attaches", [])
-        self.elements = self.msg_data.get("elements", [])
-
+        self.reactionInfo = self.msg_data.get("reactionInfo", {})
         link_data = self.msg_data.get("link")
         self.reply_to_message = None
         if link_data and link_data.get("type") == LinkType.REPLY.value:
@@ -55,6 +48,14 @@ class Message:
                 chat_id=link_data.get("chatId"),
                 message_data=link_data.get("message")
             )
+        self.message_id = self.msg_data.get("id")
+        self.time = self.msg_data.get("time", None)
+        self.text = self.msg_data.get("text", "")
+        self.type = self.msg_data.get("type")
+        self.client_id = self.msg_data.get("cid")
+        self.attachments = self.msg_data.get("attaches", [])
+        self.status = self.msg_data.get("status", None)
+        self.elements = self.msg_data.get("elements", [])
 
     def __repr__(self):
         data = {
@@ -95,3 +96,8 @@ class Message:
             if reply_to_message_id is None:
                 reply_to_message_id = self.message_id
             return await self.bot.send_message(self.chat_id, text, reply_to_message_id=reply_to_message_id)
+
+    async def edit_message_text(self, new_text: str):
+        """Удобный метод для быстрого редактирования этого сообщения"""
+        if self.chat_id is not None and self.message_id is not None:
+            return await self.bot.edit_message(self.chat_id, self.message_id, new_text, self.attachments, self.elements)
