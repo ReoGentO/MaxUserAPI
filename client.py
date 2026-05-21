@@ -340,7 +340,6 @@ class Client:
             login_data = token_attrs.get("LOGIN", {})
             token = login_data.get("token")
 
-            print(payload)
             if token:
                 with open(self.client_name + ".sessionToken", "w") as f:
                     f.write("sessionToken=" + token + "\ndeviceId=" + self.__handshake["payload"]["deviceId"])
